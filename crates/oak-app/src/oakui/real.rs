@@ -5179,6 +5179,7 @@ impl AppEngine for RealEngine {
 	fn import_footage_entry(&mut self, path: PathBuf, cx: &mut Context<Self>) -> Result<u64, String> {
 		if self.project.is_none() {
 			let name = crate::i18n::tr("manager.new.default_name").to_string();
+			log::info!("[fork] no project open; creating \"{name}\" for import");
 			self.library_create_project(&name, cx)?;
 		}
 		let Some(project) = self.project.clone() else {

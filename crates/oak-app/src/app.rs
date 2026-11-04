@@ -2269,6 +2269,7 @@ impl<E: AppEngine> OakApp<E> {
 		if matches!(self.modal, ModalState::Manager { .. }) {
 			self.close_modal(cx);
 		}
+		log::info!("[fork] import_and_place: {} file(s)", paths.len());
 		let mut time = self.engine.read(cx).clock_frame(Monitor::Program, cx);
 		let mut first_error = None;
 		for path in paths {
@@ -2292,6 +2293,7 @@ impl<E: AppEngine> OakApp<E> {
 		}
 		if let Some(err) = first_error {
 			println!("[file] drag-and-drop import failed: {err}");
+			log::warn!("[fork] import_and_place failed: {err}");
 		}
 		cx.notify();
 	}
