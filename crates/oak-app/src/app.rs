@@ -2256,6 +2256,46 @@ impl<E: AppEngine> OakApp<E> {
 		}
 	}
 
+	/// Imports `paths` and places them back to back on the timeline,
+	/// starting at the playhead. Creates a project when none is open (the
+	/// real engine does it inside `import_footage_entry`) and a sequence
+	/// sized to the first clip (inside `drop_footage`), so a file dragged
+	/// onto a bare window just works. Failures are logged.
+	fn import_and_place(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+		if paths.is_empty() {
+			return;
+		}
+		// The startup project manager must not sit on top of the result.
+		if matches!(self.modal, ModalState::Manager { .. }) {
+			self.close_modal(cx);
+		}
+		let mut time = self.engine.read(cx).clock_frame(Monitor::Program, cx);
+		let mut first_error = None;
+		for path in paths {
+			let id = match self
+				.engine
+				.update(cx, |engine, cx| engine.import_footage_entry(path.clone(), cx))
+			{
+				Ok(id) => id,
+				Err(err) => {
+					first_error.get_or_insert(format!("{}: {err}", path.display()));
+					continue;
+				}
+			};
+			let length = self.engine.read(cx).footage_length_frames(id);
+			self.engine.update(cx, |engine, cx| {
+				engine.drop_footage(id, crate::widgets::timeline::TrackKind::Video, 0, time, cx);
+			});
+			if let Some(length) = length {
+				time = Frame(time.0 + length);
+			}
+		}
+		if let Some(err) = first_error {
+			println!("[file] drag-and-drop import failed: {err}");
+		}
+		cx.notify();
+	}
+
 	/// Opens the platform file dialog for `action` and routes the picked
 	/// path(s) through the engine. Open / Import use the path picker (import
 	/// footage allows multiple files); the 导出工程文件… and the manager's
@@ -3898,7 +3938,18 @@ impl<E: AppEngine> Render for OakApp<E> {
 				}),
 			);
 		}
+		// Fallback for files dragged in from the OS anywhere that has no
+		// drop target of its own (the project explorer keeps its own
+		// import-only handler, which takes the drag first): import the
+		// files and put them on the timeline, creating the project and
+		// sequence if needed.
 		let mut root = root
+			.on_drop(cx.listener(
+				|this, paths: &gpui_kit::ExternalPaths, _window, cx| {
+					let paths: Vec<PathBuf> = paths.0.iter().cloned().collect();
+					this.import_and_place(paths, cx);
+				},
+			))
 			.child(self.menu_bar.clone())
 			.child(div().flex_1().min_h_0().child(self.dock.clone()))
 			.children(if self.timeline_visible {

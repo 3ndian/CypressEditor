@@ -1039,6 +1039,18 @@ pub trait AppEngine:
 		Ok(())
 	}
 
+	/// Imports a media file like [`Self::import_footage`] and returns the new
+	/// project-explorer entry id, so the caller can place it on the timeline.
+	/// Backends that can start a project on demand do so when none is open.
+	/// Default: unsupported.
+	fn import_footage_entry(
+		&mut self,
+		_path: std::path::PathBuf,
+		_cx: &mut Context<Self>,
+	) -> Result<u64, String> {
+		Err("importing footage is not supported".to_string())
+	}
+
 	/// Places the footage with project-explorer entry `id` on the timeline:
 	/// a clip on the track at display `track_index` starting at `time`
 	/// (undoable where the backend supports it — the facade

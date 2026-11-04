@@ -5169,16 +5169,28 @@ impl AppEngine for RealEngine {
 	}
 
 	fn import_footage(&mut self, path: PathBuf, cx: &mut Context<Self>) -> Result<(), String> {
+		self.import_footage_entry(path, cx).map(|_| ())
+	}
+
+	/// Imports `path` and returns the new entry's id. When no project is
+	/// open one is created and opened first, so importing (button, menu or
+	/// drag-and-drop) never fails just because the user skipped the
+	/// project manager.
+	fn import_footage_entry(&mut self, path: PathBuf, cx: &mut Context<Self>) -> Result<u64, String> {
+		if self.project.is_none() {
+			let name = crate::i18n::tr("manager.new.default_name").to_string();
+			self.library_create_project(&name, cx)?;
+		}
 		let Some(project) = self.project.clone() else {
 			return Err("no project open".into());
 		};
-		graphops::import_footage(&project, &path)?;
+		let node = graphops::import_footage(&project, &path)?;
 		// The material bin reads the folder tree live from the graph, so a
 		// notify is enough for the explorer to list the new entry.
 		cx.notify();
 		// 全局代理开关开启时，新素材的代理在后台自动生成。
 		self.autostart_proxies(cx);
-		Ok(())
+		Ok(node.raw())
 	}
 
 	fn entry_path(&self, id: u64) -> Option<PathBuf> {
