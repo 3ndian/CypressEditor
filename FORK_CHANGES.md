@@ -62,3 +62,7 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - File: `.github/workflows/mac-build.yml` (Package (macOS) step)
 - Copies `libquercus_engine.dylib` into `Contents/MacOS` before `bundle-dylibs-macos.sh` (which re-signs everything).
 - Merge note: if upstream's cd.yml starts bundling the engine itself, drop this.
+
+## 6. Keyboard presets (Premiere-style, Resolve-style)
+- Files: `presets/shortcuts/*.shortcuts` (no code changes). Import via Preferences > Keyboard > Import.
+- Oak's defaults are already mostly Premiere-like; the presets only list the differences.

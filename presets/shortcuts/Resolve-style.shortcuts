@@ -1,0 +1,21 @@
+pointertool	a
+razortool	b
+rippletool	t
+transitiontool	
+rollingtool	
+trackselecttool	shift-a
+snapping	n
+enabledisable	d
+split	cmd-\
+addtool	
+edittool	
+clearinout	alt-x
+rippletoin	shift-[
+rippletoout	shift-]
+insert	f9
+overwrite	f10
+linkunlink	alt-cmd-l
+fullscreenviewer	cmd-f
+deftransition	cmd-t
+export	cmd-e
+showall	shift-z
