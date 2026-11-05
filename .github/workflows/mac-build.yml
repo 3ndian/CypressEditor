@@ -57,6 +57,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # quercus-engine is a git submodule; the build needs it.
+          submodules: recursive
 
       # Defender's real-time scanning slows the MSVC build down
       # badly; disable it for the job and keep exclusions as the fallback

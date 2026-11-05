@@ -23,6 +23,8 @@ Status: derived from upstream `cd.yml`, **not yet run**.
 File: `.github/workflows/mac-build.yml` (new file, so it never conflicts).
 Manual only (Actions tab > Mac build (fork) > Run workflow). Builds just
 `Oak-macOS-arm64.dmg` and uploads it as the `oak-macos` artifact.
+Checkout uses `submodules: recursive` (upstream's own checkout steps do not fetch
+the quercus-engine submodule, so their CI fails on forks).
 If upstream changes the macOS steps in `cd.yml`, copy those steps across.
 
 ### 1. Auto-create project + sequence on file drop / import
