@@ -1973,9 +1973,14 @@ impl RealEngine {
 		};
 		let rendered = super::renderops::RenderedFrame::Sdk(slot);
 		let (image, scope, samples) = rendered.to_display()?;
+		let t_gpu = std::time::Instant::now();
 		if let Some(samples) = samples {
 			super::gpu::register_display_frame(image.id.0, width, height, &samples);
 		}
+		log::info!(
+			"[fork] gpu register ms: {:.1}",
+			t_gpu.elapsed().as_secs_f32() * 1000.0
+		);
 		Some((Arc::new(image), scope))
 	}
 

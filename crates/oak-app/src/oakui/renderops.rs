@@ -110,12 +110,31 @@ impl RenderedFrame {
 				let data = frame.bytes();
 				match info.pixel_format {
 					quercus_engine_rs::preview_video::VideoPixelFormat::F32Rgba => {
+						// [fork] per-stage timing (RUST_LOG=info) to find what
+						// makes playback slow.
+						let t0 = std::time::Instant::now();
 						let mut samples =
 							repack_f32_rows(info.width, info.height, info.linesize, &data)?;
+						let t1 = std::time::Instant::now();
 						apply_output_node_f32(&mut samples);
+						let t2 = std::time::Instant::now();
 						let scope = analyze_f32_rgba(w, h, &samples);
+						let t3 = std::time::Instant::now();
 						super::displaycolor::apply_f32_rgba(&mut samples, (w * h) as i64);
+						let t4 = std::time::Instant::now();
 						let image = f32_rgba_to_bgra_image(w, h, &samples);
+						let t5 = std::time::Instant::now();
+						log::info!(
+							"[fork] frame {}x{} display ms: repack {:.1} output {:.1} scope {:.1} displaycolor {:.1} to_bgra {:.1} total {:.1}",
+							w,
+							h,
+							(t1 - t0).as_secs_f32() * 1000.0,
+							(t2 - t1).as_secs_f32() * 1000.0,
+							(t3 - t2).as_secs_f32() * 1000.0,
+							(t4 - t3).as_secs_f32() * 1000.0,
+							(t5 - t4).as_secs_f32() * 1000.0,
+							(t5 - t0).as_secs_f32() * 1000.0,
+						);
 						Some((image, scope, Some(samples)))
 					}
 					quercus_engine_rs::preview_video::VideoPixelFormat::Bgra8 => {

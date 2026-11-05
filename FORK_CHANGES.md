@@ -71,3 +71,8 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - File: `crates/oak-app/src/widgets/timeline/timeline_view.rs` (`update_ruler_drag`)
 - Plain drag on the ruler now seeks continuously; Shift+drag keeps upstream's work-area reshape.
 - Merge note: re-apply if upstream touches `update_ruler_drag`.
+
+## 8. Playback timing logs
+- Files: `crates/oak-app/src/oakui/renderops.rs` (`to_display`), `crates/oak-app/src/oakui/real.rs` (`preview_slot_frame`)
+- Logs per-stage frame display time as `[fork] frame ... display ms: ...` and `[fork] gpu register ms` at info level (run with `RUST_LOG=info`).
+- Diagnostic only; remove once the slow stage is fixed.
