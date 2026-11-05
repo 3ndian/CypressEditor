@@ -1,0 +1,346 @@
+name: Mac build (fork)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Nightly runs are disposable: a stuck or superseded one is not worth
+# keeping (tag releases never cancel each other).
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+# One matrix, seven platforms, the same environments CI tests in (see
+# .github/workflows/ci.yml): Debian 13 / Fedora 43 / Arch / openKylin x64
+# and arm64 containers plus the macOS and Windows hosts. Every package is
+# built from scratch — no FFmpeg/cargo caches: a restored tree has
+# masked packaging problems before (stale ports, missing tools), and a
+# release must not depend on restored state.
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    # Container entries carry the container as JSON ({"image":...,
+    # "options":...}); the empty string means "run on the host"
+    # (actions/runner#265 allows an empty container value).
+    container: ${{ matrix.container != '' && fromJSON(matrix.container) || '' }}
+    # Cold FFmpeg build + release build + packaging.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            platform: macos
+            distro: macos
+            arch: arm64
+            runner: macos-26
+            triplet: arm64-osx
+            artifact: macos
+            container: ''
+
+    steps:
+      # The container images are bare (Fedora/Arch even lack git);
+      # checkout needs git/curl. First step of the job, so the
+      # package lists are still fresh.
+      - name: Bootstrap container (git, curl, wget)
+        if: matrix.container != ''
+        shell: bash
+        run: |
+          case "${{ matrix.distro }}" in
+            fedora) dnf install -y --setopt=install_weak_deps=False --setopt=max_parallel_downloads=16 git curl wget which ;;
+            arch) pacman -Sy --noconfirm git curl wget which ;;
+            debian|openkylin) apt-get update && apt-get install -y git curl ca-certificates wget ;;
+          esac
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Defender's real-time scanning slows the MSVC build down
+      # badly; disable it for the job and keep exclusions as the fallback
+      # when policy blocks the change.
+      - name: Disable Windows Defender scanning
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+            Set-MpPreference -DisableScriptScanning $true -ErrorAction SilentlyContinue
+            Set-MpPreference -DisableArchiveScanning $true -ErrorAction SilentlyContinue
+            Write-Host "Windows Defender real-time scanning disabled for this job"
+          } catch {
+            Write-Host "Windows Defender could not be disabled (non-fatal, falling back to exclusions): $_"
+          }
+          foreach ($path in @(
+            $env:GITHUB_WORKSPACE,
+            "$env:USERPROFILE\.cargo",
+            "$env:USERPROFILE\.rustup"
+          )) {
+            Add-MpPreference -ExclusionPath $path -ErrorAction SilentlyContinue
+          }
+          try {
+            Get-MpPreference |
+              Select-Object DisableRealtimeMonitoring, DisableScriptScanning, ExclusionPath |
+              Format-List
+          } catch {
+            Write-Host "Defender status unavailable: $_"
+          }
+
+      # The containers run as root but Actions sets HOME=/github/home;
+      # rustup refuses the euid mismatch ("$HOME differs from
+      # euid-obtained home directory") and would install a toolchain the
+      # later steps cannot find under the Actions home. Pin the job to
+      # root's home so rustup/cargo and the toolchain agree.
+      - name: Pin HOME for rustup
+        if: matrix.container != ''
+        shell: bash
+        run: |
+          {
+            echo "HOME=/root"
+            echo "CARGO_HOME=/root/.cargo"
+            echo "RUSTUP_HOME=/root/.rustup"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # The Windows build is MSVC-ABI (the runner carries VS 2026):
+          # The prebuilt FFmpeg and the vendored OCIO build both want it.
+          toolchain: ${{ matrix.platform == 'windows' && 'stable-x86_64-pc-windows-msvc' || 'stable' }}
+
+      # ------------------------------------------------------------------
+      # System dependencies — tooling/install-deps.sh is the single
+      # dependency list for every Linux distro and macOS; CI runs the same
+      # step, so what compiles there compiles here.
+      # ------------------------------------------------------------------
+      - name: Install dependencies
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: tooling/install-deps.sh
+
+      # Windows uses BtbN's prebuilt FFmpeg (GPL, shared): the archive
+      # ships include/, MSVC import libs (.lib), pkg-config files and the
+      # runtime DLLs, built from FFmpeg's release/8.1 branch by BtbN's
+      # public GitHub Actions (BtbN is an FFmpeg developer and ffmpeg.org
+      # links these builds). Downloaded from his release page and
+      # verified against the checksums.sha256 published in the same
+      # release; nothing is mirrored here, so provenance stays upstream.
+      # The alternative — a source build — costs ~40 minutes per run on
+      # this platform.
+      - name: Install prebuilt FFmpeg (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $base = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
+          $asset = "ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          $dir = Join-Path $env:RUNNER_TEMP "ffmpeg-prebuilt"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "$base/checksums.sha256" -OutFile "$dir\checksums.sha256"
+          $line = Select-String -Path "$dir\checksums.sha256" -Pattern ([regex]::Escape($asset) + "\s*$") |
+            Select-Object -First 1
+          if (-not $line) { throw "no checksum for $asset in the release's checksums.sha256" }
+          $expected = $line.Line.Split()[0].ToLowerInvariant()
+          Invoke-WebRequest -Uri "$base/$asset" -OutFile "$dir\$asset"
+          $actual = (Get-FileHash "$dir\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "FFmpeg checksum mismatch: expected $expected, got $actual" }
+          $root = "$env:GITHUB_WORKSPACE\.cache"
+          Remove-Item "$root\ffmpeg", "$root\ffmpeg-extract" -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -Path "$dir\$asset" -DestinationPath "$root\ffmpeg-extract" -Force
+          $inner = Get-ChildItem "$root\ffmpeg-extract" -Directory | Select-Object -First 1
+          Move-Item $inner.FullName "$root\ffmpeg"
+
+      # ------------------------------------------------------------------
+      # FFmpeg — built from source, every codec library included
+      # statically (Linux/macOS), or the prebuilt archive (Windows);
+      # no caches
+      # ------------------------------------------------------------------
+      # The Linux/macOS jobs follow the local-build path (install-deps.sh
+      # ran above; tooling/ffmpeg/build-ffmpeg.sh below); the release
+      # policy is a from-scratch build, so nothing is restored from a
+      # cache here.
+      - name: Build FFmpeg
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: tooling/ffmpeg/build-ffmpeg.sh
+
+      # ------------------------------------------------------------------
+      # Build environment
+      # ------------------------------------------------------------------
+      # ocio-sys builds a stub bridge unless these are set; the oak-core
+      # ocioutils tests need the real library.
+      # tooling/ocio-env.sh: vendored static OCIO (the [patch.crates-io]
+      # ocio-sys tracks shaloong/ocio-rs main, whose vendored sources build
+      # on GCC >= 16).
+      - name: Configure build environment (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          {
+            echo "CC=clang"
+            echo "CXX=clang++"
+          } >> "$GITHUB_ENV"
+          bash tooling/ocio-env.sh >> "$GITHUB_ENV"
+          ffmpeg="$PWD/.cache/ffmpeg"
+          echo "FFMPEG_DIR=$ffmpeg" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$ffmpeg/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Configure build environment (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          # Vendored static OCIO (same as every non-Windows platform via
+          # tooling/ocio-env.sh); no OCIO_INSTALL_DIR override.
+          bash tooling/ocio-env.sh >> "$GITHUB_ENV"
+          ffmpeg="$PWD/.cache/ffmpeg"
+          echo "FFMPEG_DIR=$ffmpeg" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$ffmpeg/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Configure build environment (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # FFmpeg comes from the prebuilt archive extracted above.
+          $ffmpeg = "$env:GITHUB_WORKSPACE\.cache\ffmpeg"
+          "FFMPEG_DIR=$ffmpeg" >> $env:GITHUB_ENV
+          "PKG_CONFIG_PATH=$ffmpeg\lib\pkgconfig" >> $env:GITHUB_ENV
+          "$ffmpeg\bin" >> $env:GITHUB_PATH
+          # Bundled OCIO: ocio-sys' vendored sources build with the MSVC
+          # toolchain (what they need — the MSYS2 package was the
+          # workaround, not the preference), so no OCIO_INSTALL_DIR and
+          # no OCIO_RS_NO_MSVC_INCLUDES anywhere.
+          "OCIO_RS_ENABLE_REAL=1" >> $env:GITHUB_ENV
+          "OCIO_RS_LINK=static" >> $env:GITHUB_ENV
+
+      - name: Install cargo-packager
+        if: matrix.distro == 'debian' || matrix.platform != 'linux'
+        run: cargo install cargo-packager --locked
+
+      - name: Generate app icon (PNG from Oak_Icon.svg)
+        if: matrix.platform != 'windows'
+        run: |
+          mkdir -p icons
+          if command -v rsvg-convert >/dev/null 2>&1; then
+            rsvg-convert -w 512 -h 512 Oak_Icon.svg -o icons/icon.png
+          else
+            # Defensive: some containers may not carry an SVG renderer;
+            # fall back to the committed 512x512 render.
+            cp assets/app-icon.png icons/icon.png
+          fi
+
+      # ------------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------------
+      # Default dynamic CRT on Windows: the vendored OCIO is compiled /MD,
+      # so forcing Rust to /MT fails with LNK2038 'RuntimeLibrary'
+      # mismatch; the redistributable DLLs ship with the installer below.
+      - name: Build (release)
+        run: cargo build --release --locked
+
+      # ------------------------------------------------------------------
+      # Package
+      # ------------------------------------------------------------------
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The release version lives in [workspace.package] of the root
+          # Cargo.toml (single source of truth; tags do not carry it).
+          VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          case "${{ matrix.distro }}" in
+            debian)
+              # The general Debian-family package, labeled "+debian".
+              tooling/package/build-deb.sh "$VERSION" debian
+              # appimagetool self-extracts instead of mounting (containers
+              # have no FUSE).
+              APPIMAGE_EXTRACT_AND_RUN=1 cargo packager --release --formats appimage
+              ;;
+            fedora)
+              tooling/package/build-rpm.sh "$VERSION"
+              ;;
+            arch)
+              tooling/package/build-pkg.sh "$VERSION"
+              ;;
+            openkylin)
+              # The openKylin build, labeled "+openkylin"; dpkg-shlibdeps
+              # resolves the runtime deps against openKylin's own repos.
+              tooling/package/build-deb.sh "$VERSION" openkylin
+              ;;
+          esac
+
+      - name: Package (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          cargo packager --release --formats app
+          # cargo-packager names the bundle after the packager
+          # `productName` ("Oak Video Editor.app"), so resolve it instead
+          # of guessing.
+          APP="$(ls -d target/release/*.app | head -1)"
+          tooling/package/bundle-dylibs-macos.sh "$APP"
+          rm -rf dmg-staging
+          mkdir -p dmg-staging
+          cp -R "$APP" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "Oak Video Editor" \
+            -srcfolder dmg-staging -ov -format UDZO Oak-macOS-arm64.dmg
+
+      - name: Bundle runtime DLLs
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/pkg/win-dlls | Out-Null
+          # FFmpeg + codec DLLs from the prebuilt archive (see above).
+          Copy-Item "$env:GITHUB_WORKSPACE\.cache\ffmpeg\bin\*.dll" target/pkg/win-dlls/
+          # The MSVC runtime: the build keeps the default dynamic CRT (see
+          # the Build step), so ship the redistributable DLLs app-locally.
+          $crt = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object FullName | Select-Object -Last 1
+          if (-not $crt) { throw "MSVC CRT redist directory not found" }
+          Copy-Item "$($crt.FullName)\*.dll" target/pkg/win-dlls/
+
+      - name: Package (NSIS)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: cargo packager --release --formats nsis
+
+      # ------------------------------------------------------------------
+      # Upload
+      # ------------------------------------------------------------------
+      # Nightly (scheduled) builds get a dated artifact name so they are
+      # easy to find on the Actions run page, and a shorter retention —
+      # they are superseded every day. Tag/manual builds keep the clean
+      # names the release job downloads.
+      - name: Compute nightly artifact suffix
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: echo "NIGHTLY_SUFFIX=-nightly-$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+
+      - name: Stage artifacts
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/*.deb dist/ 2>/dev/null || true
+          cp target/release/*.rpm dist/ 2>/dev/null || true
+          cp target/release/*.pkg.tar.zst dist/ 2>/dev/null || true
+          cp target/release/*.AppImage dist/ 2>/dev/null || true
+          cp ./*.dmg dist/ 2>/dev/null || true
+          ls -la dist
+
+      - name: Stage artifacts (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/*-setup.exe dist/
+          Get-ChildItem dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: oak-${{ matrix.artifact }}${{ env.NIGHTLY_SUFFIX }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'schedule' && 14 || 90 }}

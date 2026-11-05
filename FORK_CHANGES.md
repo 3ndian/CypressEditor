@@ -18,6 +18,13 @@ Debug logs from our changes start with `[fork]`. See them with:
 
 ## Changes
 
+### 2. Mac-only build workflow
+Status: derived from upstream `cd.yml`, **not yet run**.
+File: `.github/workflows/mac-build.yml` (new file, so it never conflicts).
+Manual only (Actions tab > Mac build (fork) > Run workflow). Builds just
+`Oak-macOS-arm64.dmg` and uploads it as the `oak-macos` artifact.
+If upstream changes the macOS steps in `cd.yml`, copy those steps across.
+
 ### 1. Auto-create project + sequence on file drop / import
 Status: written, **not yet built or tested** (needs the project FFmpeg build).
 Why: dragging a file onto the window or using Import did nothing unless a
