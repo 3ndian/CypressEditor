@@ -1029,6 +1029,15 @@ impl<D: TimelineDataSource> TimelineView<D> {
 		let drag = Arc::clone(event.drag(cx));
 		let press = drag.read().expect("drag lock is not poisoned").press;
 		let now = event.event.position - event.bounds.origin;
+		// [fork] Dragging on the ruler scrubs: the playhead follows the
+		// pointer (Premiere/Resolve behavior). The work-area reshape that
+		// used to be the plain-drag behavior now needs Shift held.
+		if !event.event.modifiers.shift {
+			let seq_len = self.sequence_length(cx).0.max(1);
+			let frame = self.state.frame_at_point(now.x).0.clamp(0, seq_len);
+			self.seek(Frame(frame), cx);
+			return;
+		}
 		let mut drag = drag.write().expect("ruler drag lock is not poisoned");
 		let dx = (now.x.as_f32() - press.x.as_f32()).abs();
 		if dx < 3.0 {

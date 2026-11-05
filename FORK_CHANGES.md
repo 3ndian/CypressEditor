@@ -66,3 +66,8 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 ## 6. Keyboard presets (Premiere-style, Resolve-style)
 - Files: `presets/shortcuts/*.shortcuts` (no code changes). Import via Preferences > Keyboard > Import.
 - Oak's defaults are already mostly Premiere-like; the presets only list the differences.
+
+## 7. Ruler drag scrubs the playhead
+- File: `crates/oak-app/src/widgets/timeline/timeline_view.rs` (`update_ruler_drag`)
+- Plain drag on the ruler now seeks continuously; Shift+drag keeps upstream's work-area reshape.
+- Merge note: re-apply if upstream touches `update_ruler_drag`.
