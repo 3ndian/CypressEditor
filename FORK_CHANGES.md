@@ -47,6 +47,12 @@ Files touched (look here first if an upstream merge conflicts):
 Known gaps: import errors are only logged; clip always lands on video track 1.
 If upstream adds its own drop-to-create behaviour, drop this change.
 
+### 3. Cargo.lock refresh
+Upstream's `Cargo.lock` at `8b7b9af` is one line behind (`windows-sys 0.61.2`
+missing from the quercus-engine-rs entry), so `cargo build --locked` fails.
+The fix is that one added line. When upstream commits a fresh lockfile, take
+theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
+
 ## Ideas / not done yet
 - Native macOS menu bar (upstream only draws an in-window bar).
 - Show import errors in the UI.
