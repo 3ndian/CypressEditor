@@ -281,7 +281,17 @@ jobs:
           # `productName` ("Oak Video Editor.app"), so resolve it instead
           # of guessing.
           APP="$(ls -d target/release/*.app | head -1)"
+          # [fork] The app links libquercus_engine.dylib via @rpath
+          # (@loader_path = Contents/MacOS); cargo-packager only copies the
+          # executables, so ship the engine dylib next to them. Without it
+          # the app dies at launch with "Library not loaded".
+          ENGINE="$(ls target/release/libquercus_engine.dylib 2>/dev/null || ls target/release/deps/libquercus_engine*.dylib | head -1)"
+          echo "engine dylib: $ENGINE"
+          cp -L "$ENGINE" "$APP/Contents/MacOS/libquercus_engine.dylib"
+          chmod u+w "$APP/Contents/MacOS/libquercus_engine.dylib"
           tooling/package/bundle-dylibs-macos.sh "$APP"
+          otool -L "$APP/Contents/MacOS/libquercus_engine.dylib"
+          ls -la "$APP/Contents/MacOS"
           rm -rf dmg-staging
           mkdir -p dmg-staging
           cp -R "$APP" dmg-staging/

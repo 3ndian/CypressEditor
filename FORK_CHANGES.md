@@ -57,3 +57,8 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - Native macOS menu bar (upstream only draws an in-window bar).
 - Show import errors in the UI.
 - Find out why playback is slow on M1 (hardware decode, proxies, ACEScg).
+
+## 5. macOS app launch crash: engine dylib not bundled
+- File: `.github/workflows/mac-build.yml` (Package (macOS) step)
+- Copies `libquercus_engine.dylib` into `Contents/MacOS` before `bundle-dylibs-macos.sh` (which re-signs everything).
+- Merge note: if upstream's cd.yml starts bundling the engine itself, drop this.
