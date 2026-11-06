@@ -1926,6 +1926,25 @@ impl RealEngine {
 				window.submitted.remove(&frame);
 			}
 		}
+		// [fork] Once a second: how many frames are rendered and ready vs
+		// still rendering. Ready staying at 0 during play = the renderer
+		// cannot keep ahead of the playhead (the picture freezes).
+		{
+			use std::sync::atomic::{AtomicU64, Ordering};
+			static LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
+			let now_ms = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map(|d| d.as_millis() as u64)
+				.unwrap_or(0);
+			if now_ms.saturating_sub(LAST_LOG_MS.load(Ordering::Relaxed)) >= 1000 {
+				LAST_LOG_MS.store(now_ms, Ordering::Relaxed);
+				log::info!(
+					"[fork] preview window: playhead {playhead} ready {} rendering {}",
+					window.slots.len(),
+					window.requests.len()
+				);
+			}
+		}
 		let new_frames: Vec<i64> = (playhead.max(0)..end)
 			.filter(|f| !window.submitted.contains(f))
 			.collect();

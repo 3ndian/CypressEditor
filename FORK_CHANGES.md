@@ -80,3 +80,8 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 ## 9. Surface swallowed render failures
 - File: `crates/oak-app/src/oakui/real.rs` (preview drain, preview submit, `full_res_worker`)
 - Failed/unstartable renders were silently dropped (viewer then shows the color-bar placeholder); now logged at warn as `[fork] ... render failed`.
+
+## 10. Preview-window stats log + faster colour transform
+- `crates/oak-app/src/oakui/real.rs`: once-a-second `[fork] preview window: playhead N ready N rendering N` (info).
+- Engine fork commit `colormath: split mid-size frames across threads`: `par_bands` in `quercus-core/src/colormath.rs` parallelises from ~16k px (was 2^19 px, which left 960x540 single-threaded at ~47 ms).
+- Finding (not yet fixed): the timeline preview path (`apply_montage_effect` in `quercus-render/src/eval.rs`) only evaluates built-in Opacity and OFX plugins; all other built-in effects (Invert, Three-way colour, VHS REVRB) pass through unchanged.
