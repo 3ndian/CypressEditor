@@ -85,3 +85,9 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - `crates/oak-app/src/oakui/real.rs`: once-a-second `[fork] preview window: playhead N ready N rendering N` (info).
 - Engine fork commit `colormath: split mid-size frames across threads`: `par_bands` in `quercus-core/src/colormath.rs` parallelises from ~16k px (was 2^19 px, which left 960x540 single-threaded at ~47 ms).
 - Finding (not yet fixed): the timeline preview path (`apply_montage_effect` in `quercus-render/src/eval.rs`) only evaluates built-in Opacity and OFX plugins; all other built-in effects (Invert, Three-way colour, VHS REVRB) pass through unchanged.
+
+## 11. Effects/text in the preview: graph-renderer fallback
+- Engine fork: `quercus-engine/src/preview_video.rs` + `preview_video/montage.rs` (`sequence_needs_graph_render`).
+- If a visible clip has a built-in effect other than Opacity, or is not footage (text, solid), the preview renders the frame with the full node-graph renderer instead of the montage fast path.
+- Set `QUERCUS_NO_GRAPH_FALLBACK=1` in the environment to turn the fallback off (compare speed).
+- Merge note: if upstream makes the montage path evaluate all built-in effects, drop this fallback.
