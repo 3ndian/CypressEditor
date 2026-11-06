@@ -192,6 +192,12 @@ impl<E: AppEngine> ProgramViewerPanel<E> {
 		cx.observe(&engine, |_this, _engine, cx| cx.notify())
 			.detach();
 
+		// [fork] Also repaint whenever the playback clock moves. Without this
+		// the panel only re-synced the picture on engine notifications, so
+		// during play the viewer stayed on a stale/black frame until something
+		// else (e.g. clicking the Picture tab) forced a repaint.
+		cx.observe(&clock, |_this, _clock, cx| cx.notify()).detach();
+
 		// A throttled idle pump for the OFX interact: the plugin's UI work
 		// loop is served on the viewer's own timer (the app tick is
 		// shell-owned), so an active interact's `idle` action runs without

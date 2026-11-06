@@ -97,3 +97,7 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - File: `crates/oak-app/src/oakui/real.rs` (`update_preview_window`, `FORK_MAX_IN_FLIGHT`, `FORK_LOOKAHEAD_FRAMES`).
 - Cause of black/frozen playback: the window submitted every frame from the playhead to the end at once (100+ renders in flight). Each decodes H.264 on its own, so decoders thrash and the frame at the playhead was starved.
 - Fix: at most 3 renders in flight, 12 frames of look-ahead, submitted in order from the playhead.
+
+## 13. Program viewer repaints during playback
+- File: `crates/oak-app/src/panels/program_viewer.rs` (observe the playback clock), `real.rs` (in-flight 5, look-ahead 20).
+- Cause of "black until I click Picture": the panel only re-synced its picture when the engine notified; the playback clock is a separate entity, so nothing repainted the panel while playing. Log evidence: ~5 frame displays across 330 played frames.

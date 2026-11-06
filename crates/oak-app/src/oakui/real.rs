@@ -334,8 +334,8 @@ type PreviewSlot = quercus_engine_rs::preview_video::VideoFrame;
 const AUDIO_PREFETCH_CHUNKS: i64 = 6;
 
 /// [fork] Max concurrent preview renders and look-ahead (frames).
-const FORK_MAX_IN_FLIGHT: usize = 3;
-const FORK_LOOKAHEAD_FRAMES: i64 = 12;
+const FORK_MAX_IN_FLIGHT: usize = 5;
+const FORK_LOOKAHEAD_FRAMES: i64 = 20;
 
 /// The playhead frame whose audio is playing at audio-clock time `secs`:
 /// `start_frame + (secs - start_secs)` seconds at `rate`. The wall clock
