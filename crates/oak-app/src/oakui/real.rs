@@ -1562,6 +1562,9 @@ impl RealEngine {
 					Some(quercus_engine_rs::types::PixelFormat::F32),
 				),
 			};
+			if let Err(err) = &rendered {
+				log::warn!("[fork] full-res render failed (frame {frame}): {err}");
+			}
 			if let Ok(rendered) = rendered {
 				// The SDK owns and releases backend resources; the app only
 				// converts the owned pixels for its long-lived display cache.
@@ -1913,6 +1916,13 @@ impl RealEngine {
 					window.submitted.remove(&frame);
 				}
 			} else {
+				if task.state() == quercus_engine_rs::task::TaskState::Failed {
+					// [fork] failures were silent; surface them.
+					log::warn!(
+						"[fork] preview render failed (frame {frame}): {}",
+						task.error()
+					);
+				}
 				window.submitted.remove(&frame);
 			}
 		}
@@ -1935,6 +1945,7 @@ impl RealEngine {
 				playhead,
 				self.preview_generation,
 			) else {
+				log::warn!("[fork] could not start preview render for frame {frame}");
 				continue;
 			};
 			let mut windows = self

@@ -76,3 +76,7 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - Files: `crates/oak-app/src/oakui/renderops.rs` (`to_display`), `crates/oak-app/src/oakui/real.rs` (`preview_slot_frame`)
 - Logs per-stage frame display time as `[fork] frame ... display ms: ...` and `[fork] gpu register ms` at info level (run with `RUST_LOG=info`).
 - Diagnostic only; remove once the slow stage is fixed.
+
+## 9. Surface swallowed render failures
+- File: `crates/oak-app/src/oakui/real.rs` (preview drain, preview submit, `full_res_worker`)
+- Failed/unstartable renders were silently dropped (viewer then shows the color-bar placeholder); now logged at warn as `[fork] ... render failed`.
