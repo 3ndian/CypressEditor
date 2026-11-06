@@ -92,3 +92,8 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 - Set `QUERCUS_NO_GRAPH_FALLBACK=1` in the environment to turn the fallback off (compare speed).
 - Merge note: if upstream makes the montage path evaluate all built-in effects, drop this fallback.
 - Fallback also triggers for visible transitions, clip speed != 1 and reversed clips (not represented in the montage).
+
+## 12. Playback pre-render throttle
+- File: `crates/oak-app/src/oakui/real.rs` (`update_preview_window`, `FORK_MAX_IN_FLIGHT`, `FORK_LOOKAHEAD_FRAMES`).
+- Cause of black/frozen playback: the window submitted every frame from the playhead to the end at once (100+ renders in flight). Each decodes H.264 on its own, so decoders thrash and the frame at the playhead was starved.
+- Fix: at most 3 renders in flight, 12 frames of look-ahead, submitted in order from the playhead.

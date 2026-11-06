@@ -333,6 +333,10 @@ type PreviewSlot = quercus_engine_rs::preview_video::VideoFrame;
 /// device underruns.
 const AUDIO_PREFETCH_CHUNKS: i64 = 6;
 
+/// [fork] Max concurrent preview renders and look-ahead (frames).
+const FORK_MAX_IN_FLIGHT: usize = 3;
+const FORK_LOOKAHEAD_FRAMES: i64 = 12;
+
 /// The playhead frame whose audio is playing at audio-clock time `secs`:
 /// `start_frame + (secs - start_secs)` seconds at `rate`. The wall clock
 /// anchors play() at the click instant, but the first chunk only reaches
@@ -1945,8 +1949,14 @@ impl RealEngine {
 				);
 			}
 		}
+		// [fork] Throttle: only a few renders in flight, and a short
+		// look-ahead, so the frame at the playhead is rendered first instead
+		// of competing with dozens of later frames for the decoders.
+		let end = end.min(playhead + FORK_LOOKAHEAD_FRAMES);
+		let budget = FORK_MAX_IN_FLIGHT.saturating_sub(window.requests.len());
 		let new_frames: Vec<i64> = (playhead.max(0)..end)
 			.filter(|f| !window.submitted.contains(f))
+			.take(budget)
 			.collect();
 		drop(windows);
 
