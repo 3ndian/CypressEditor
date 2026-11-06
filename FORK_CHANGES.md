@@ -101,3 +101,9 @@ theirs on conflict (`git checkout --theirs Cargo.lock`) and drop this entry.
 ## 13. Program viewer repaints during playback
 - File: `crates/oak-app/src/panels/program_viewer.rs` (observe the playback clock), `real.rs` (in-flight 5, look-ahead 20).
 - Cause of "black until I click Picture": the panel only re-synced its picture when the engine notified; the playback clock is a separate entity, so nothing repainted the panel while playing. Log evidence: ~5 frame displays across 330 played frames.
+
+## 14. Late-frame display + tunable preview window
+- File: `crates/oak-app/src/oakui/real.rs` (`preview_slot_frame`, `fork_max_in_flight`, `fork_lookahead_frames`).
+- While playing, if the exact playhead frame is not rendered yet, the newest rendered frame behind the playhead is shown (previously nothing was shown and ~1 frame/s got through).
+- In-flight renders / look-ahead are now env-tunable without rebuilding: `OAK_PREVIEW_INFLIGHT` (default 2) and `OAK_PREVIEW_AHEAD` (default 10).
+- Log evidence: 3 in flight = 80 ms/frame, 5 in flight = 190 ms/frame (more concurrency was slower, i.e. renders contend).

@@ -334,8 +334,28 @@ type PreviewSlot = quercus_engine_rs::preview_video::VideoFrame;
 const AUDIO_PREFETCH_CHUNKS: i64 = 6;
 
 /// [fork] Max concurrent preview renders and look-ahead (frames).
-const FORK_MAX_IN_FLIGHT: usize = 5;
-const FORK_LOOKAHEAD_FRAMES: i64 = 20;
+/// Overridable for testing without a rebuild:
+/// `OAK_PREVIEW_INFLIGHT=2 OAK_PREVIEW_AHEAD=8 ./oak-editor`.
+fn fork_max_in_flight() -> usize {
+	static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+	*V.get_or_init(|| {
+		std::env::var("OAK_PREVIEW_INFLIGHT")
+			.ok()
+			.and_then(|v| v.parse().ok())
+			.map(|v: usize| v.clamp(1, 16))
+			.unwrap_or(2)
+	})
+}
+fn fork_lookahead_frames() -> i64 {
+	static V: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+	*V.get_or_init(|| {
+		std::env::var("OAK_PREVIEW_AHEAD")
+			.ok()
+			.and_then(|v| v.parse().ok())
+			.map(|v: i64| v.clamp(2, 120))
+			.unwrap_or(10)
+	})
+}
 
 /// The playhead frame whose audio is playing at audio-clock time `secs`:
 /// `start_frame + (secs - start_secs)` seconds at `rate`. The wall clock
@@ -1864,7 +1884,9 @@ impl RealEngine {
 		// Release slots that fell behind the playhead (frames passed without
 		// being displayed); the just-displayed frame was already consumed by
 		// `cpu_frame`. Prune the submitted set the same way.
-		let keep_from = (playhead - 2).max(0);
+		// [fork] while playing keep a few late frames: they are shown instead
+		// of freezing when the renderer is slightly behind the playhead.
+		let keep_from = (playhead - if playing { 8 } else { 2 }).max(0);
 		let stale: Vec<i64> = window
 			.slots
 			.keys()
@@ -1952,8 +1974,8 @@ impl RealEngine {
 		// [fork] Throttle: only a few renders in flight, and a short
 		// look-ahead, so the frame at the playhead is rendered first instead
 		// of competing with dozens of later frames for the decoders.
-		let end = end.min(playhead + FORK_LOOKAHEAD_FRAMES);
-		let budget = FORK_MAX_IN_FLIGHT.saturating_sub(window.requests.len());
+		let end = end.min(playhead + fork_lookahead_frames());
+		let budget = fork_max_in_flight().saturating_sub(window.requests.len());
 		let new_frames: Vec<i64> = (playhead.max(0)..end)
 			.filter(|f| !window.submitted.contains(f))
 			.take(budget)
@@ -1992,6 +2014,7 @@ impl RealEngine {
 		&self,
 		monitor: Monitor,
 		frame: Frame,
+		playing: bool,
 	) -> Option<(Arc<RenderImage>, ScopeData)> {
 		let node = match monitor {
 			Monitor::Program => self.sequence?,
@@ -2006,7 +2029,31 @@ impl RealEngine {
 		if window.sequence != node_id || window.generation != self.preview_generation {
 			return None;
 		}
-		let slot = window.slots.remove(&frame.0)?;
+		let slot = match window.slots.remove(&frame.0) {
+			Some(slot) => slot,
+			None if playing => {
+				// [fork] The exact frame is late: show the newest rendered
+				// frame behind the playhead (a dropped frame beats a frozen
+				// picture) and discard anything older.
+				let newest = window
+					.slots
+					.keys()
+					.copied()
+					.filter(|f| *f < frame.0)
+					.max()?;
+				let older: Vec<i64> = window
+					.slots
+					.keys()
+					.copied()
+					.filter(|f| *f < newest)
+					.collect();
+				for f in older {
+					window.slots.remove(&f);
+				}
+				window.slots.remove(&newest)?
+			}
+			None => return None,
+		};
 		let (width, height) = {
 			let info = slot.info();
 			(info.width.max(0) as u32, info.height.max(0) as u32)
@@ -3640,7 +3687,8 @@ impl AppEngine for RealEngine {
 		// Land the current proxy first, even when its full-res fill won the
 		// race: scopes are tied to this proxy pass and must not starve behind
 		// the full-resolution cache hit.
-		if let Some((image, scope)) = self.preview_slot_frame(monitor, frame) {
+		let playing = self.clock(monitor).read(cx).transport.is_playing();
+		if let Some((image, scope)) = self.preview_slot_frame(monitor, frame, playing) {
 			cache.entry(monitor).or_default().proxy = Some(ProxyEntry {
 				frame: frame.0,
 				image: image.clone(),
